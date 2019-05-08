@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using UTJ.VertexTweaker;
 using UTJ.BlendShapeBuilder;
+using System.Linq;
 
 
 namespace UTJ.BlendShapeBuilderEditor
@@ -17,6 +18,10 @@ namespace UTJ.BlendShapeBuilderEditor
         UnityEngine.Object m_active;
 
         static readonly int indentSize = 18;
+
+        string[] names;
+        float scrollValue = EditorGUIUtility.singleLineHeight * 3;
+
         #endregion
 
 
@@ -66,7 +71,30 @@ namespace UTJ.BlendShapeBuilderEditor
                 m_active = activeGameObject;
             else
                 m_active = Selection.activeObject;
+
+            if (m_active != null)
+            {
+                var targetObject = m_active;
+                updateNames(Utils.GetMesh(m_active));
+            }
+
             Repaint();
+        }
+
+        void updateNames(Mesh targetMesh)
+        {
+            if (targetMesh != null)
+            {
+                var materials = Utils.GetMaterials(m_active);
+
+                int numShapes = targetMesh.blendShapeCount;
+
+                names = new string[numShapes];
+                for (int i = 0; i < numShapes; i++)
+                {
+                    names[i] = targetMesh.GetBlendShapeName(i);
+                }
+            }
         }
 
         #endregion
@@ -96,17 +124,67 @@ namespace UTJ.BlendShapeBuilderEditor
                 GUILayout.Space(indentSize);
                 GUILayout.BeginVertical();
 
+
                 for (int si = 0; si < numShapes; ++si)
                 {
                     var name = targetMesh.GetBlendShapeName(si);
                     int numFrames = targetMesh.GetBlendShapeFrameCount(si);
 
                     GUILayout.BeginVertical("Box");
-
                     GUILayout.BeginHorizontal();
-                    GUILayout.Label(name + " (" + numFrames + " frames)");
+
+                    GUILayout.Label("" + si, GUILayout.Width(20));
+
+                    {
+                        var rect = EditorGUILayout.GetControlRect();
+                        var width = rect.width;
+                        var pos = rect.position;
+
+
+
+                        GUIStyle style = new GUIStyle(EditorStyles.textField);
+                        if(name != names[si])
+                        {
+                            style.normal.textColor = Color.red;    // 通常時の色
+                            style.fontStyle = FontStyle.Bold;
+                        }
+
+                        names[si] = EditorGUI.TextField(new Rect(pos, new Vector2(width, 16)), names[si], style);
+
+                        if (GUILayout.Button("Update", GUILayout.Width(60)))
+                        {
+                            UpdateName(targetMesh, si, names[si]);
+                        }
+                    }
+
+
+                    GUILayout.Label(" (" + numFrames + " frames)");
                     if (GUILayout.Button("Extract All", GUILayout.Width(90)))
                         ExtractBlendShapeFrames(targetMesh, si, -1, materials);
+
+
+                    if (si != 0) {
+                        if (GUILayout.Button("▲", GUILayout.Width(30)))
+                        {
+                            ShiftIndex(targetMesh, si, -1);
+                            updateNames(targetMesh);
+                            this.m_scrollPos.y -= scrollValue;
+                        }
+                    }else
+                        GUILayout.Label("△", GUILayout.Width(30));
+
+                    if (si < (numShapes - 1))
+                    {
+                        if (GUILayout.Button("▼", GUILayout.Width(30)))
+                        {
+                            ShiftIndex(targetMesh, si, 1);
+                            updateNames(targetMesh);
+                            this.m_scrollPos.y += scrollValue;
+                        }
+                    }
+                    else
+                        GUILayout.Label("▽", GUILayout.Width(30));
+
                     GUILayout.EndHorizontal();
 
                     GUILayout.BeginHorizontal();
@@ -133,6 +211,128 @@ namespace UTJ.BlendShapeBuilderEditor
                 if (GUILayout.Button("Convert To Compose Data", GUILayout.Width(200)))
                     ConvertToComposeData(targetObject);
             }
+        }
+
+
+        public static GameObject[] UpdateName(Mesh target, int targetShapeIndex, string newName)
+        {
+
+
+            var blendShapes = Enumerable.Range(0, target.blendShapeCount).Select(si =>
+            {
+                var name = target.GetBlendShapeName(si);
+
+
+                //mainlogic UpdateName
+                if (targetShapeIndex == si)
+                {
+                    name = newName;
+                }
+
+                var frameCount = target.GetBlendShapeFrameCount(si);
+
+
+                //Debug.Log("shapeIndex=" + si + " name=" + name + " frames=" + frameCount);
+
+                return new
+                {
+                    shapeIndex = si,
+                    name = name,
+                    frames = Enumerable.Range(0, frameCount).Select(fi =>
+                    {
+                        var dVer = new Vector3[target.vertexCount];
+                        var dNol = new Vector3[target.vertexCount];
+                        var dTan = new Vector3[target.vertexCount];
+                        //Debug.Log("frameIndex=" + fi);
+                        target.GetBlendShapeFrameVertices(si, fi, dVer, dNol, dTan);
+                        return new
+                        {
+                            frameIndex = fi,
+                            weight = target.GetBlendShapeFrameWeight(si, fi),
+                            deltaVertex = dVer,
+                            deltaNormal = dNol,
+                            deltaTangent = dTan
+                        };
+
+                    }).ToArray()
+                };
+            }).ToArray();
+
+
+            target.ClearBlendShapes();
+
+
+            foreach (var blendShape in blendShapes)
+            {
+                foreach (var frame in blendShape.frames)
+                {
+                    target.AddBlendShapeFrame(blendShape.name, frame.weight, frame.deltaVertex, frame.deltaNormal, frame.deltaTangent);
+                }
+            }
+
+            return null;
+        }
+
+        // frameIndex = -1: extract all frames
+        public static GameObject[] ShiftIndex(Mesh target, int targetShapeIndex, int shift = 0)
+        {
+            var blendShapes = Enumerable.Range(0, target.blendShapeCount).Select(si =>
+            {
+                var name = target.GetBlendShapeName(si);
+                var frameCount = target.GetBlendShapeFrameCount(si);
+
+
+                //Debug.Log("shapeIndex=" + si + " name=" + name + " frames=" + frameCount);
+
+                return new
+                {
+                    shapeIndex = si,
+                    name = name,
+                    frames = Enumerable.Range(0, frameCount).Select(fi =>
+                        {
+                            var dVer = new Vector3[target.vertexCount];
+                            var dNol = new Vector3[target.vertexCount];
+                            var dTan = new Vector3[target.vertexCount];
+                            //Debug.Log("frameIndex=" + fi);
+                            target.GetBlendShapeFrameVertices(si, fi, dVer, dNol, dTan);
+                            return new
+                            {
+                                frameIndex = fi,
+                                weight = target.GetBlendShapeFrameWeight(si, fi),
+                                deltaVertex = dVer,
+                                deltaNormal = dNol,
+                                deltaTangent = dTan
+                            };
+
+                        }).ToArray()
+                };
+            }).ToArray();
+
+            
+            target.ClearBlendShapes();
+
+
+            
+            //mainlogic swapIndex
+            {
+
+                var tmp = blendShapes[targetShapeIndex + shift];
+                blendShapes[targetShapeIndex + shift] = blendShapes[targetShapeIndex];
+                blendShapes[targetShapeIndex] = tmp;
+            }
+
+
+
+
+            foreach(var blendShape in blendShapes)
+            {
+                foreach(var frame in blendShape.frames)
+                {
+                    target.AddBlendShapeFrame(blendShape.name, frame.weight, frame.deltaVertex, frame.deltaNormal, frame.deltaTangent);
+                }
+            }
+
+            return null;
         }
 
         // frameIndex = -1: extract all frames
