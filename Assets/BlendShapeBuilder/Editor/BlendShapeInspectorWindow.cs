@@ -21,6 +21,7 @@ namespace UTJ.BlendShapeBuilderEditor
 
         string[] names;
         float scrollValue = EditorGUIUtility.singleLineHeight * 3;
+        bool forceDelete = false;
 
         #endregion
 
@@ -118,7 +119,15 @@ namespace UTJ.BlendShapeBuilderEditor
             }
             else
             {
+                GUILayout.BeginHorizontal();
                 EditorGUILayout.LabelField("Has " + numShapes + " Blendshapes");
+
+
+
+                GUILayout.FlexibleSpace();
+                EditorGUILayout.LabelField("no delete dialog", GUILayout.Width(100));
+                forceDelete = EditorGUILayout.Toggle(forceDelete, GUILayout.Width(10));
+                GUILayout.EndHorizontal();
 
                 GUILayout.BeginHorizontal();
                 GUILayout.Space(indentSize);
@@ -164,18 +173,18 @@ namespace UTJ.BlendShapeBuilderEditor
 
 
                     if (si != 0) {
-                        if (GUILayout.Button("▲", GUILayout.Width(30)))
+                        if (GUILayout.Button("▲", GUILayout.Width(20)))
                         {
                             ShiftIndex(targetMesh, si, -1);
                             updateNames(targetMesh);
                             this.m_scrollPos.y -= scrollValue;
                         }
                     }else
-                        GUILayout.Label("△", GUILayout.Width(30));
+                        GUILayout.Label("△", GUILayout.Width(20));
 
                     if (si < (numShapes - 1))
                     {
-                        if (GUILayout.Button("▼", GUILayout.Width(30)))
+                        if (GUILayout.Button("▼", GUILayout.Width(20)))
                         {
                             ShiftIndex(targetMesh, si, 1);
                             updateNames(targetMesh);
@@ -183,7 +192,17 @@ namespace UTJ.BlendShapeBuilderEditor
                         }
                     }
                     else
-                        GUILayout.Label("▽", GUILayout.Width(30));
+                        GUILayout.Label("▽", GUILayout.Width(20));
+
+                    if (GUILayout.Button("－", GUILayout.Width(20)))
+                    {
+                        if(forceDelete || EditorUtility.DisplayDialog("Delete", "Do you want to delete this blend shape?\nIt works the same as ExtractAll.", "Delete","Cancel"))
+                        {
+                            ExtractBlendShapeFrames(targetMesh, si, -1, materials);
+                            DeleteShape(targetMesh, si);
+                            updateNames(targetMesh);
+                        }
+                    }
 
                     GUILayout.EndHorizontal();
 
@@ -212,6 +231,59 @@ namespace UTJ.BlendShapeBuilderEditor
                     ConvertToComposeData(targetObject);
             }
         }
+
+        public static GameObject[] DeleteShape(Mesh target, int targetShapeIndex)
+        {
+
+
+            var blendShapes = Enumerable.Range(0, target.blendShapeCount).Select(si =>
+            {
+                var name = target.GetBlendShapeName(si);
+
+                var frameCount = target.GetBlendShapeFrameCount(si);
+
+
+                //Debug.Log("shapeIndex=" + si + " name=" + name + " frames=" + frameCount);
+
+                return new
+                {
+                    shapeIndex = si,
+                    name = name,
+                    frames = Enumerable.Range(0, frameCount).Select(fi =>
+                    {
+                        var dVer = new Vector3[target.vertexCount];
+                        var dNol = new Vector3[target.vertexCount];
+                        var dTan = new Vector3[target.vertexCount];
+                        //Debug.Log("frameIndex=" + fi);
+                        target.GetBlendShapeFrameVertices(si, fi, dVer, dNol, dTan);
+                        return new
+                        {
+                            frameIndex = fi,
+                            weight = target.GetBlendShapeFrameWeight(si, fi),
+                            deltaVertex = dVer,
+                            deltaNormal = dNol,
+                            deltaTangent = dTan
+                        };
+
+                    }).ToArray()
+                };
+            }).Where(bs => bs.shapeIndex != targetShapeIndex).ToArray(); //mainlogic
+
+            target.ClearBlendShapes();
+
+
+            foreach (var blendShape in blendShapes)
+            {
+                foreach (var frame in blendShape.frames)
+                {
+
+                    target.AddBlendShapeFrame(blendShape.name, frame.weight, frame.deltaVertex, frame.deltaNormal, frame.deltaTangent);
+                }
+            }
+
+            return null;
+        }
+
 
 
         public static GameObject[] UpdateName(Mesh target, int targetShapeIndex, string newName)
