@@ -1,7 +1,7 @@
 using UnityEngine;
 using UnityEditor;
 using System;
-using System.Collections.Generic;
+using System.Collections;
 using UTJ.VertexTweaker;
 using UTJ.BlendShapeBuilder;
 using System.Linq;
@@ -105,6 +105,17 @@ namespace UTJ.BlendShapeBuilderEditor
 
         public void DrawBlendShapeInspector()
         {
+            // Neutrino mods.
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button("SortNameAsc"))
+            {
+                sort(false);
+            };
+            if (GUILayout.Button("SortNameDesc"))
+            {
+                sort(true);
+            };
+            GUILayout.EndHorizontal();
             var targetObject = m_active;
             var targetMesh = Utils.GetMesh(m_active);
             if (targetMesh == null) { return; }
@@ -227,8 +238,61 @@ namespace UTJ.BlendShapeBuilderEditor
                 GUILayout.EndHorizontal();
 
                 GUILayout.Space(6);
+
                 if (GUILayout.Button("Convert To Compose Data", GUILayout.Width(200)))
+                {
                     ConvertToComposeData(targetObject);
+                }
+                
+            }
+        }
+
+        /// <summary>
+        /// Neutrino mods.
+        /// 名前順で並べ替える
+        /// </summary>
+        /// <param name="desc"></param>
+        private void sort(bool desc)
+        {
+            var targetMesh = Utils.GetMesh(m_active);
+            int numShapes = targetMesh.blendShapeCount;
+            String[] newSort = (String[]) names.Clone();
+            if (desc)
+            {
+                Array.Sort(newSort, new DescClass());
+            }
+            else
+            {
+                Array.Sort(newSort, new AscClass());
+            }
+            for (int si = 0; si < numShapes; ++si)
+            {
+                var name = targetMesh.GetBlendShapeName(si);
+                int idx = Array.IndexOf(newSort, name);
+                ShiftIndex(targetMesh, si, idx - si);
+            }
+            updateNames(targetMesh);
+        }
+
+        /// <summary>
+        /// Neutrino mods.
+        /// </summary>
+        private class DescClass : IComparer
+        {
+            public int Compare(object x, object y)
+            {
+                return ((new CaseInsensitiveComparer()).Compare(y, x));
+            }
+        }
+
+        /// <summary>
+        /// Neutrino mods.
+        /// </summary>
+        private class AscClass : IComparer
+        {
+            public int Compare(object x, object y)
+            {
+                return ((new CaseInsensitiveComparer()).Compare(x, y));
             }
         }
 
